@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Summer Water Planner · Panirakhandar</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-page="planner">
+<div id="app-header"></div>
+
+<section class="hero small">
+  <div class="container">
+    <div class="crumb">Panirakhandar › Step 4</div>
+    <h1>📅 Summer Water Planner</h1>
+    <p>Share the available summer water fairly between farmers, then turn each farm’s share into a simple weekly irrigation turn schedule.</p>
+  </div>
+</section>
+
+<main class="container">
+  <noscript><div class="alert err">This website needs JavaScript. Please enable it in your browser.</div></noscript>
+
+  <h2>1 · Water allocation</h2>
+  <div class="grid cols-2" style="align-items:start">
+    <section class="card">
+      <div class="card-head"><h3>Water available for summer irrigation</h3><span id="srcBadge"></span></div>
+      <form id="allocForm" novalidate>
+        <div class="form-grid">
+          <div class="field"><label for="available">Estimated water available (m³)</label><input type="number" id="available" step="any" min="0" inputmode="decimal">
+            <span class="hint">Your own estimate of what will really be in the ponds / source in summer.</span></div>
+          <div class="field"><label for="reserve">Reserve (%)</label><input type="number" id="reserve" step="any" min="0" max="100" inputmode="decimal">
+            <span class="hint">Kept back for other needs or uncertainty. Not allocated.</span></div>
+        </div>
+        <p class="small muted mt">Need a starting point? Fill the box from a figure computed elsewhere, then check and save it:</p>
+        <div class="btn-row" style="margin-top:.3rem">
+          <button class="btn btn-sm blue" type="button" id="useDeliver">Use deliverable pond water</button>
+          <button class="btn btn-sm blue" type="button" id="useSummer">Use summer stream capturable</button>
+        </div>
+        <div id="allocErrors" class="alert err" hidden></div>
+        <div class="btn-row"><button class="btn" type="submit">💾 Calculate &amp; save</button></div>
+      </form>
+    </section>
+    <section class="card">
+      <h3>How water is shared</h3>
+      <ul class="clean small">
+        <li>Allocatable water = available water × (1 − reserve %).</li>
+        <li>Farmer allocation = allocatable water × (farmer demand ÷ total demand).</li>
+        <li>A farmer is never given more than their own demand, and the total never exceeds the allocatable water.</li>
+        <li>Demand = the farmer’s total daily need × planning days (<span id="daysTxt"></span>).</li>
+        <li>If water is short, every farmer receives the same share of their demand, and the shortage is shown below.</li>
+      </ul>
+    </section>
+  </div>
+
+  <div id="allocArea" class="mt"></div>
+
+  <h2 class="section-title">2 · Irrigation scheduling</h2>
+  <div class="alert info">This is a transparent rule-of-thumb planner. It has <strong>no live weather data, soil sensors or AI forecasting</strong>. You enter soil condition and expected rainfall yourself. Early morning and late evening are suggested because less water is lost to evaporation.</div>
+
+  <details class="card mb" id="rulesCard">
+    <summary>⚙️ Editable scheduling assumptions</summary>
+    <p class="small muted">These are illustrative starting values, not agronomic advice. Adjust them with guidance from your local agriculture office.</p>
+    <div class="form-grid">
+      <div class="field"><label for="ruleRain">Weekly rain that replaces irrigation (mm)</label><input type="number" id="ruleRain" step="any" min="0"><span class="hint">At or above this, irrigation is skipped. Below it, rain/threshold is credited.</span></div>
+      <div class="field"><label for="ruleModerate">Moderate-soil factor (0–1)</label><input type="number" id="ruleModerate" step="any" min="0" max="1"><span class="hint">Dry = 1. Wet soil is always skipped.</span></div>
+    </div>
+    <h4 class="mt">Growth-stage water factor (0–1)</h4>
+    <div class="form-grid" id="ruleStages"></div>
+    <h4 class="mt">Turns per week by irrigation method (1–7)</h4>
+    <div class="form-grid" id="ruleTurns"></div>
+    <h4 class="mt">Irrigation windows (24-hour clock)</h4>
+    <div class="form-grid">
+      <div class="field"><label for="mStart">Early morning start (h)</label><input type="number" id="mStart" step="any" min="0" max="24"></div>
+      <div class="field"><label for="mEnd">Early morning end (h)</label><input type="number" id="mEnd" step="any" min="0" max="24"></div>
+      <div class="field"><label for="eStart">Late evening start (h)</label><input type="number" id="eStart" step="any" min="0" max="24"></div>
+      <div class="field"><label for="eEnd">Late evening end (h)</label><input type="number" id="eEnd" step="any" min="0" max="24"></div>
+    </div>
+    <div id="ruleErrors" class="alert err" hidden></div>
+    <div class="btn-row"><button class="btn" type="button" id="btnRules">💾 Save assumptions</button></div>
+  </details>
+
+  <div class="card mb">
+    <h3>Farm conditions this week</h3>
+    <p class="small muted">Set each farm’s growth stage, soil, expected rain (mm for the coming week) and preferred hours per turn. Changes save automatically and update the schedule below.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Farmer / farm</th><th>Crop</th><th>Growth stage</th><th>Irrigation</th><th>Soil</th><th>Rain (mm/week)</th><th>Hours per turn</th><th>Preferred time</th></tr></thead>
+      <tbody id="farmSettings"></tbody>
+    </table></div>
+  </div>
+
+  <div id="schedArea"></div>
+</main>
+
+<div id="app-footer"></div>
+<script src="app.js"></script>
+<script>
+Pan.ready(function () {
+  Pan.renderShell('planner');
+  var data = Pan.load();
+  var $ = Pan.$, fmt = Pan.fmt, esc = Pan.esc;
+
+  var days = Pan.num(data.planningDays);
+  $('#daysTxt').innerHTML = days ? fmt(days) + ' days' : 'not set yet · <a href="farmers.html">set on Farmers page</a>';
+
+  /* ---------- allocation ---------- */
+  $('#available').value = data.planner.available === null ? '' : data.planner.available;
+  $('#reserve').value = data.planner.reserve === null ? '' : data.planner.reserve;
+  $('#srcBadge').innerHTML = data.planner.available !== null ? Pan.badge(data.planner.source) : '';
+
+  $('#useDeliver').addEventListener('click', function () {
+    var p = Pan.calcPonds(data);
+    if (!p.ok) { Pan.toast('Complete the Stream, Farmers and Pond pages first to get this figure.', 'err'); return; }
+    $('#available').value = Math.round(p.deliverable * 100) / 100;
+    Pan.toast('Filled from pond planning. Review it, then press Calculate & save.');
+  });
+  $('#useSummer').addEventListener('click', function () {
+    var s = Pan.calcStream(data.stream.summer);
+    if (!s) { Pan.toast('No summer stream estimate yet. Enter it on the Stream Water page.', 'err'); return; }
+    $('#available').value = Math.round(s.capturable * 100) / 100;
+    Pan.toast('Filled from the summer stream estimate. Review it, then press Calculate & save.');
+  });
+
+  $('#allocForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var a = Pan.num($('#available').value), r = Pan.num($('#reserve').value), errs = [];
+    if (a === null) errs.push('Water available for summer irrigation is required.'); else if (a <= 0) errs.push('Water available must be greater than 0.');
+    if (r === null) errs.push('Reserve percentage is required (enter 0 for none).'); else if (r < 0 || r > 100) errs.push('Reserve must be between 0 and 100%.');
+    Pan.renderErrors($('#allocErrors'), errs);
+    if (errs.length) return;
+    data.planner.available = a; data.planner.reserve = r; data.planner.source = 'user';
+    Pan.save(data); Pan.renderShell('planner');
+    $('#srcBadge').innerHTML = Pan.badge('user');
+    renderAlloc(); renderSchedule(); Pan.toast('Allocation saved.');
+  });
+
+  function res(l, v, cls) { return '<div class="result ' + (cls || '') + '"><div class="lbl">' + l + '</div><div class="val">' + v + '</div></div>'; }
+
+  function missingBox(a) {
+    return '<div class="empty"><span class="big">🧮</span>' + Pan.NOT_ENTERED + '. Still needed:<ul class="clean" style="display:inline-block;text-align:left">' +
+      a.missing.map(function (m) { return '<li><a href="' + m.href + '">' + m.text + '</a></li>'; }).join('') + '</ul></div>';
+  }
+
+  function renderAlloc() {
+    var a = Pan.calcAllocation(data), box = $('#allocArea');
+    if (!a.ok) { box.innerHTML = '<div class="card">' + missingBox(a) + '</div>'; return; }
+    var short = a.unmet > 0.005, h = '<div class="card">';
+    if (data.planner.source === 'demo') h += '<div class="alert warn">🧪 <strong>Example water volume.</strong> Replace with your own estimate.</div>';
+    h += '<div class="result-grid">' +
+      res('Total water available', fmt(a.available, 0) + ' <small>m³</small>') +
+      res('Reserved (' + fmt(a.reservePct, 1) + '%)', fmt(a.reserved, 0) + ' <small>m³</small>') +
+      res('Allocatable after reserve', fmt(a.allocatable, 0) + ' <small>m³</small>', 'good') +
+      res('Total demand (' + fmt(a.days) + ' days)', fmt(a.totalDemand, 0) + ' <small>m³</small>') +
+      res('Total allocated', fmt(a.totalAllocated, 0) + ' <small>m³</small>') +
+      res('Unmet demand', fmt(a.unmet, 0) + ' <small>m³</small>', short ? 'bad' : 'good') + '</div>';
+    if (short) h += '<div class="alert err"><strong>Water shortage: ' + fmt(a.unmet, 0) + ' m³ of demand cannot be met</strong> (' + fmt(a.unmet / a.totalDemand * 100, 1) + '% of total). Every farmer receives the same share of their demand. Consider water-saving irrigation, rotating crops, or finding more water.</div>';
+    else h += '<div class="alert ok"><strong>All demand can be met.</strong> ' + (a.unallocated > 0.005 ? fmt(a.unallocated, 0) + ' m³ of allocatable water is left over.' : '') + '</div>';
+    h += '<div class="table-wrap"><table><thead><tr><th>Farmer</th><th class="num">Demand (m³)</th><th class="num">Allocated (m³)</th><th class="num">Unmet (m³)</th><th class="num">Demand met</th><th class="num">Share of water</th><th></th></tr></thead><tbody>';
+    a.rows.forEach(function (r) {
+      var cls = r.metPct >= 0.999 ? 'c-green' : (r.metPct >= 0.6 ? 'c-orange' : 'c-red');
+      h += '<tr><td>' + esc(r.name) + ' ' + Pan.badge(r.source) + '</td><td class="num">' + fmt(r.demand, 0) + '</td><td class="num"><strong>' + fmt(r.allocation, 0) + '</strong></td>' +
+        '<td class="num">' + fmt(r.unmet, 0) + '</td><td class="num">' + fmt(r.metPct * 100, 1) + '%</td><td class="num">' + fmt(r.share * 100, 1) + '%</td>' +
+        '<td><div class="mini-bar"><span class="' + cls + '" style="width:' + Math.min(100, r.metPct * 100) + '%"></span></div></td></tr>';
+    });
+    h += '<tr class="total-row"><td>Total</td><td class="num">' + fmt(a.totalDemand, 0) + '</td><td class="num">' + fmt(a.totalAllocated, 0) + '</td><td class="num">' + fmt(a.unmet, 0) +
+      '</td><td class="num">' + fmt(a.totalAllocated / a.totalDemand * 100, 1) + '%</td><td class="num">' + (a.allocatable > 0 ? '100%' : '0%') + '</td><td></td></tr></tbody></table></div></div>';
+    box.innerHTML = h;
+  }
+
+  /* ---------- scheduling rules ---------- */
+  function fillRules() {
+    var R = data.rules;
+    $('#ruleRain').value = R.rainThresholdMm; $('#ruleModerate').value = R.soilFactor.moderate;
+    $('#ruleStages').innerHTML = Pan.STAGES.map(function (s, i) {
+      return '<div class="field"><label for="st' + i + '">' + esc(s) + '</label><input type="number" id="st' + i + '" step="any" min="0" max="1" value="' + R.stageFactor[s] + '"></div>';
+    }).join('');
+    $('#ruleTurns').innerHTML = Pan.IRRIGATION.map(function (m, i) {
+      return '<div class="field"><label for="tn' + i + '">' + m + '</label><input type="number" id="tn' + i + '" step="1" min="1" max="7" value="' + R.turnsPerWeek[m] + '"></div>';
+    }).join('');
+    $('#mStart').value = R.morning.start; $('#mEnd').value = R.morning.end; $('#eStart').value = R.evening.start; $('#eEnd').value = R.evening.end;
+  }
+  $('#btnRules').addEventListener('click', function () {
+    var errs = [], R = data.rules;
+    var rain = Pan.num($('#ruleRain').value), mod = Pan.num($('#ruleModerate').value);
+    if (!(rain > 0)) errs.push('Rain threshold must be greater than 0 mm.');
+    if (mod === null || mod < 0 || mod > 1) errs.push('Moderate-soil factor must be between 0 and 1.');
+    var stage = {}, turns = {};
+    Pan.STAGES.forEach(function (s, i) { var v = Pan.num($('#st' + i).value); if (v === null || v < 0 || v > 1) errs.push('Stage factor for “' + s + '” must be between 0 and 1.'); stage[s] = v; });
+    Pan.IRRIGATION.forEach(function (m, i) { var v = Pan.num($('#tn' + i).value); if (v === null || v < 1 || v > 7 || Math.floor(v) !== v) errs.push('Turns per week for ' + m + ' must be a whole number from 1 to 7.'); turns[m] = v; });
+    var ms = Pan.num($('#mStart').value), me = Pan.num($('#mEnd').value), es = Pan.num($('#eStart').value), ee = Pan.num($('#eEnd').value);
+    [ms, me, es, ee].forEach(function (v) { if (v === null || v < 0 || v > 24) errs.push('Window times must be between 0 and 24.'); });
+    if (ms !== null && me !== null && ms >= me) errs.push('Early morning window must end after it starts.');
+    if (es !== null && ee !== null && es >= ee) errs.push('Late evening window must end after it starts.');
+    Pan.renderErrors($('#ruleErrors'), errs);
+    if (errs.length) return;
+    R.rainThresholdMm = rain; R.soilFactor.moderate = mod; R.stageFactor = stage; R.turnsPerWeek = turns;
+    R.morning = { start: ms, end: me }; R.evening = { start: es, end: ee };
+    Pan.save(data); renderSchedule(); Pan.toast('Scheduling assumptions saved.');
+  });
+
+  /* ---------- farm settings ---------- */
+  function sel(opts, val, attrs) {
+    return '<select ' + attrs + '>' + opts.map(function (o) {
+      var v = Array.isArray(o) ? o[0] : o, l = Array.isArray(o) ? o[1] : o;
+      return '<option value="' + esc(v) + '"' + (v === val ? ' selected' : '') + '>' + esc(l) + '</option>';
+    }).join('') + '</select>';
+  }
+  function renderSettings() {
+    if (!data.farmers.length) { $('#farmSettings').innerHTML = '<tr><td colspan="8"><div class="empty"><span class="big">🌾</span>No farms registered yet. <a href="farmers.html">Add farmers and farms</a> first.</div></td></tr>'; return; }
+    var crops = Object.keys(data.crops), html = '';
+    data.farmers.forEach(function (fr) {
+      fr.farms.forEach(function (f) {
+        var a = 'data-farm="' + esc(f.id) + '"';
+        var cropList = crops.indexOf(f.crop) >= 0 ? crops : crops.concat([f.crop]);
+        html += '<tr><td>' + esc(fr.name) + ' › ' + esc(Pan.farmName(fr, f)) + ' ' + Pan.badge(f.source) + '</td>' +
+          '<td>' + sel(cropList, f.crop, a + ' data-k="crop"') + '</td>' +
+          '<td>' + sel(Pan.STAGES, f.stage, a + ' data-k="stage"') + '</td>' +
+          '<td>' + sel(Pan.IRRIGATION, f.irrigation, a + ' data-k="irrigation"') + '</td>' +
+          '<td>' + sel(Pan.SOILS, f.soil, a + ' data-k="soil"') + '</td>' +
+          '<td><input type="number" step="any" min="0" value="' + (f.rain === null || f.rain === undefined ? '' : f.rain) + '" ' + a + ' data-k="rain" aria-label="Expected rainfall in mm"></td>' +
+          '<td><input type="number" step="any" min="0" max="12" value="' + (f.hours === null || f.hours === undefined ? '' : f.hours) + '" placeholder="hours" ' + a + ' data-k="hours" aria-label="Irrigation hours per turn"></td>' +
+          '<td>' + sel([['any', 'No preference'], ['morning', 'Early morning'], ['evening', 'Late evening']], f.slot || 'any', a + ' data-k="slot"') + '</td></tr>';
+      });
+    });
+    $('#farmSettings').innerHTML = html || '<tr><td colspan="8" class="muted">Farmers have no farms yet.</td></tr>';
+  }
+  $('#farmSettings').addEventListener('change', function (e) {
+    var el = e.target, id = el.getAttribute('data-farm'), k = el.getAttribute('data-k');
+    if (!id) return;
+    var farm = null;
+    data.farmers.forEach(function (fr) { fr.farms.forEach(function (f) { if (f.id === id) farm = f; }); });
+    if (!farm) return;
+    var v = el.value;
+    if (k === 'rain' || k === 'hours') {
+      var n = Pan.num(v);
+      if (v.trim() !== '' && (n === null || n < 0)) { el.classList.add('invalid'); Pan.toast('Enter a number of 0 or more.', 'err'); return; }
+      if (k === 'hours' && n !== null && n > 12) { el.classList.add('invalid'); Pan.toast('Hours per turn cannot exceed 12.', 'err'); return; }
+      el.classList.remove('invalid');
+      v = n;
+      if (k === 'rain' && v === null) v = 0;
+    }
+    farm[k] = v; farm.source = 'user';
+    Pan.save(data); Pan.renderShell('planner');
+    renderAlloc(); renderSchedule();
+  });
+
+  /* ---------- schedule output ---------- */
+  function renderSchedule() {
+    var a = Pan.calcAllocation(data), box = $('#schedArea');
+    if (!a.ok) { box.innerHTML = '<div class="card"><h3>Weekly irrigation schedule</h3>' + missingBox(a) + '</div>'; return; }
+    var s = Pan.generateSchedule(data, a), h = '<div class="card"><h3>Per-farm weekly plan</h3>';
+    h += '<p class="small muted">Weekly water is capped at each farm’s allocation (its share of the farmer’s allocation, spread over ' + fmt(a.days / 7, 1) + ' weeks). Planned volume = weekly need × soil factor × stage factor × (1 − rain credit).</p>';
+    h += '<div class="table-wrap"><table><thead><tr><th>Farm</th><th class="num">Weekly allocation (m³)</th><th class="num">Planned this week (m³)</th><th class="num">Turns</th><th class="num">Per turn (m³)</th><th>Advice</th></tr></thead><tbody>';
+    s.farms.forEach(function (o) {
+      var badge = o.status === 'ok' ? '<span class="badge okb">Irrigate</span>' : (o.status === 'incomplete' ? '<span class="badge warnb">Need input</span>' : '<span class="badge grey">Skip</span>');
+      h += '<tr><td>' + esc(o.farmerName) + ' › ' + esc(o.farmLabel) + '</td><td class="num">' + fmt(o.weeklyAlloc, 0) + '</td><td class="num">' + fmt(o.planned, 0) + '</td>' +
+        '<td class="num">' + (o.turns || '—') + '</td><td class="num">' + (o.turns ? fmt(o.perTurn, 0) : '—') + '</td><td>' + badge + ' <span class="small">' + esc(o.note) + '</span></td></tr>';
+    });
+    h += '</tbody></table></div></div>';
+
+    var R = s.rules;
+    h += '<div class="card mt"><h3>Weekly turn schedule</h3><p class="small muted">🌅 Early morning ' + Pan.hhmm(R.morning.start) + '–' + Pan.hhmm(R.morning.end) + ' · 🌇 Late evening ' + Pan.hhmm(R.evening.start) + '–' + Pan.hhmm(R.evening.end) +
+      '. Turns are spread across the week and queued one after another inside each window. Dashed outline = runs past the window.</p>';
+    var any = s.farms.some(function (o) { return o.placements.length; });
+    if (!any) h += '<div class="empty"><span class="big">🌧️</span>No irrigation turns this week. Soil, rain or missing inputs mean nothing is scheduled. See the advice column above.</div>';
+    else {
+      h += '<div class="table-wrap"><table class="sched"><thead><tr><th>Day</th><th>🌅 Early morning</th><th>🌇 Late evening</th></tr></thead><tbody>';
+      Pan.WEEKDAYS.forEach(function (day, i) {
+        function cell(list, cls) {
+          if (!list.length) return '<span class="muted">—</span>';
+          return list.map(function (e) {
+            return '<span class="slot ' + cls + (e.overflow ? ' over' : '') + '"><b>' + Pan.hhmm(e.start) + '–' + Pan.hhmm(e.end) + '</b> ' + esc(e.farmerName) + ' › ' + esc(e.farmLabel) + '<br><span class="small muted">≈ ' + fmt(e.volume, 0) + ' m³</span></span>';
+          }).join('');
+        }
+        h += '<tr><td>' + day + '</td><td>' + cell(s.grid[i].morning, '') + '</td><td>' + cell(s.grid[i].evening, 'eve') + '</td></tr>';
+      });
+      h += '</tbody></table></div>';
+    }
+    h += '<p class="small muted mt">Suggested times only. Adjust to local conditions and agree turns with neighbouring farmers.</p></div>';
+    box.innerHTML = h;
+  }
+
+  fillRules(); renderSettings(); renderAlloc(); renderSchedule();
+});
+</script>
+</body>
+</html>

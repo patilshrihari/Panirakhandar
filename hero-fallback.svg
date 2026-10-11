@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 700" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8fd3e8"/>
+      <stop offset=".55" stop-color="#d8f0e4"/>
+      <stop offset="1" stop-color="#fbf6e9"/>
+    </linearGradient>
+    <linearGradient id="river" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1b6ca8"/>
+      <stop offset="1" stop-color="#1fb5ad"/>
+    </linearGradient>
+    <linearGradient id="field" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4fae5e"/>
+      <stop offset="1" stop-color="#1f6b3a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="700" fill="url(#sky)"/>
+  <circle cx="1280" cy="130" r="64" fill="#fff4c2" opacity=".9"/>
+  <path d="M0 330 L170 210 L330 300 L520 170 L720 290 L900 190 L1100 300 L1300 200 L1600 320 L1600 700 L0 700Z" fill="#5f9f8a" opacity=".65"/>
+  <path d="M0 400 L200 290 L380 380 L580 270 L800 390 L1020 280 L1240 390 L1440 300 L1600 380 L1600 700 L0 700Z" fill="#2f8f4e" opacity=".85"/>
+  <path d="M0 470 Q300 400 620 460 T1250 440 T1600 470 L1600 700 L0 700Z" fill="#1f7a43"/>
+  <!-- sugarcane field rows -->
+  <g stroke="#9bd88f" stroke-width="3" opacity=".75">
+    <path d="M0 700 L420 470"/><path d="M110 700 L470 470"/><path d="M220 700 L520 470"/><path d="M330 700 L570 470"/>
+    <path d="M1600 700 L1180 470"/><path d="M1490 700 L1130 470"/><path d="M1380 700 L1080 470"/><path d="M1270 700 L1030 470"/>
+  </g>
+  <path d="M0 520 L1600 520 L1600 700 L0 700Z" fill="url(#field)" opacity=".55"/>
+  <!-- stream (the nala) -->
+  <path d="M700 470 C760 520 640 560 760 610 C860 650 800 680 840 700 L1010 700 C980 670 1040 640 940 600 C830 560 940 520 840 470Z" fill="url(#river)"/>
+  <path d="M740 520 C790 545 760 570 800 590" stroke="#d9f6ff" stroke-width="3" fill="none" opacity=".6" stroke-linecap="round"/>
+  <path d="M800 620 C850 640 835 660 860 680" stroke="#d9f6ff" stroke-width="3" fill="none" opacity=".5" stroke-linecap="round"/>
+</svg>

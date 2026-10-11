@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Farmers &amp; Water Demand · Panirakhandar</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-page="farmers">
+<div id="app-header"></div>
+
+<section class="hero small">
+  <div class="container">
+    <div class="crumb">Panirakhandar › Step 2</div>
+    <h1>🌾 Farmers &amp; Water Demand</h1>
+    <p>Register farmers and their farms, and estimate how much irrigation water each farm needs per day and over the summer.</p>
+  </div>
+</section>
+
+<main class="container">
+  <noscript><div class="alert err">This website needs JavaScript. Please enable it in your browser.</div></noscript>
+
+  <div id="stats" class="grid cols-4 mb"></div>
+
+  <div class="grid cols-2" style="align-items:start">
+    <section class="card">
+      <h2>📆 Planning period</h2>
+      <p class="muted small">Number of summer days you want to irrigate. Seasonal demand = total daily demand × planning days. All volumes are in cubic metres (m³).</p>
+      <div class="form-grid">
+        <div class="field"><label for="planDays">Planning period (days)</label>
+          <input type="number" id="planDays" min="1" max="365" step="1" inputmode="numeric"></div>
+      </div>
+      <div id="planErrors" class="alert err" hidden></div>
+      <div class="btn-row"><button class="btn" type="button" id="btnPlan">💾 Save planning days</button></div>
+    </section>
+
+    <details class="card" id="cropCard" open>
+      <summary>🌱 Crop water assumptions (editable)</summary>
+      <p class="muted small">Optional helper values in <strong>m³ per hectare per day</strong>. Panirakhandar does not ship real crop requirements: enter figures from your local agriculture office or your own experience. They are only used by the “Estimate from crop assumption” button, and you can always type a different daily need for each farm.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Crop</th><th>m³ / ha / day</th><th></th></tr></thead>
+        <tbody id="cropRows"></tbody>
+      </table></div>
+      <div class="form-grid mt">
+        <div class="field"><label for="newCrop">Add another crop</label><input type="text" id="newCrop" maxlength="40" placeholder="e.g. Turmeric"></div>
+      </div>
+      <div id="cropErrors" class="alert err" hidden></div>
+      <div class="btn-row">
+        <button class="btn blue" type="button" id="btnAddCrop">➕ Add crop</button>
+        <button class="btn" type="button" id="btnSaveCrops">💾 Save assumptions</button>
+      </div>
+    </details>
+  </div>
+
+  <div class="grid cols-2 mt" style="align-items:start">
+    <section class="card">
+      <h2 id="farmerFormTitle">👨‍🌾 Add farmer</h2>
+      <form id="farmerForm" novalidate>
+        <div class="form-grid">
+          <div class="field"><label for="farmerName">Farmer name or ID</label><input type="text" id="farmerName" maxlength="60" placeholder="e.g. Ramesh Patil / F-07"></div>
+        </div>
+        <div id="farmerErrors" class="alert err" hidden></div>
+        <div class="btn-row">
+          <button class="btn" type="submit" id="btnFarmerSave">➕ Add farmer</button>
+          <button class="btn outline" type="button" id="btnFarmerCancel" hidden>Cancel edit</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2 id="farmFormTitle">🚜 Add farm</h2>
+      <form id="farmForm" novalidate>
+        <div class="form-grid">
+          <div class="field"><label for="farmFarmer">Farmer</label><select id="farmFarmer"></select></div>
+          <div class="field"><label for="farmLabel">Farm name (optional)</label><input type="text" id="farmLabel" maxlength="60" placeholder="e.g. Upper plot"></div>
+          <div class="field"><label for="farmArea">Farm area</label><input type="number" id="farmArea" step="any" min="0" inputmode="decimal"></div>
+          <div class="field"><label for="farmUnit">Area unit</label>
+            <select id="farmUnit"><option value="acre">Acres</option><option value="ha">Hectares</option></select></div>
+          <div class="field"><label for="farmCrop">Crop</label><select id="farmCrop"></select></div>
+          <div class="field"><label for="farmIrr">Irrigation method</label><select id="farmIrr"></select></div>
+          <div class="field"><label for="farmDaily">Daily water need (m³/day)</label>
+            <input type="number" id="farmDaily" step="any" min="0" inputmode="decimal">
+            <span class="hint">Your estimate for this farm. <a href="#" id="btnEstimate">Estimate from crop assumption</a></span></div>
+        </div>
+        <div id="farmErrors" class="alert err" hidden></div>
+        <div class="btn-row">
+          <button class="btn" type="submit" id="btnFarmSave">➕ Add farm</button>
+          <button class="btn outline" type="button" id="btnFarmCancel" hidden>Cancel edit</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <h2 class="section-title">Registered farmers and farms</h2>
+  <div class="card">
+    <div class="table-wrap"><table>
+      <thead><tr><th>Farmer / farm</th><th>Crop · irrigation</th><th class="num">Farms</th><th class="num">Area (ha)</th><th class="num">Area (acres)</th><th class="num">Daily need (m³/day)</th><th class="num">Seasonal need (m³)</th><th>Actions</th></tr></thead>
+      <tbody id="farmerRows"></tbody>
+    </table></div>
+    <p class="small muted mt">Total daily demand is the sum of every farm’s own daily requirement. Farms are never assumed to need the same amount. Next step: <a href="ponds.html">Pond Planning</a> and <a href="planner.html">Summer Planner</a>.</p>
+  </div>
+</main>
+
+<div id="app-footer"></div>
+<script src="app.js"></script>
+<script>
+Pan.ready(function () {
+  Pan.renderShell('farmers');
+  var data = Pan.load();
+  var $ = Pan.$, fmt = Pan.fmt, esc = Pan.esc;
+  var editFarmer = null, editFarm = null;   // ids being edited
+
+  function persist() { Pan.save(data); Pan.renderShell('farmers'); }
+  function findFarmer(id) { return data.farmers.find(function (f) { return f.id === id; }); }
+
+  /* ---------- stats ---------- */
+  function renderStats() {
+    var t = Pan.totals(data), D = Pan.seasonalDemand(data), days = Pan.num(data.planningDays);
+    function card(cls, ico, lbl, val, sub) {
+      return '<div class="stat ' + cls + '"><span class="ico">' + ico + '</span><div class="lbl">' + lbl + '</div>' +
+        (val === null ? '<div class="val na">' + Pan.NOT_ENTERED + '</div>' : '<div class="val">' + val + '</div>') +
+        '<div class="sub">' + (sub || '') + '</div></div>';
+    }
+    $('#stats').innerHTML =
+      card('g', '👨‍🌾', 'Farmers', t.farmers ? fmt(t.farmers) : null, t.farms + ' farms in total') +
+      card('g', '🌱', 'Cultivated area', t.farms ? fmt(t.ha, 2) + ' <small>ha</small>' : null, fmt(t.acres, 2) + ' acres') +
+      card('b', '💧', 'Daily demand', t.daily > 0 ? fmt(t.daily, 1) + ' <small>m³/day</small>' : null, 'sum of all farms') +
+      card('y', '🗓️', 'Seasonal demand', D !== null ? fmt(D, 0) + ' <small>m³</small>' : null,
+           days ? 'over ' + fmt(days) + ' days' : 'planning days not set');
+  }
+
+  /* ---------- planning days ---------- */
+  $('#planDays').value = data.planningDays === null ? '' : data.planningDays;
+  $('#btnPlan').addEventListener('click', function () {
+    var v = Pan.num($('#planDays').value), errs = [];
+    if (v === null) errs.push('Planning period is required.');
+    else if (v < 1 || Math.floor(v) !== v) errs.push('Planning period must be a whole number of days, 1 or more.');
+    else if (v > 365) errs.push('Planning period cannot be more than 365 days.');
+    Pan.renderErrors($('#planErrors'), errs);
+    if (errs.length) return;
+    data.planningDays = v; persist(); renderStats(); renderTable();
+    Pan.toast('Planning period saved: ' + v + ' days.');
+  });
+
+  /* ---------- crop assumptions ---------- */
+  function renderCrops() {
+    var names = Object.keys(data.crops);
+    $('#cropRows').innerHTML = names.map(function (n) {
+      var c = data.crops[n], used = data.farmers.some(function (fr) { return fr.farms.some(function (f) { return f.crop === n; }); });
+      return '<tr><td>' + esc(n) + ' ' + Pan.badge(c.perHaDay === null ? null : c.source) + '</td>' +
+        '<td><input type="number" step="any" min="0" data-crop="' + esc(n) + '" value="' + (c.perHaDay === null ? '' : c.perHaDay) + '" placeholder="not set" aria-label="Water need for ' + esc(n) + '"></td>' +
+        '<td>' + (used ? '<span class="small muted">in use</span>' : '<button type="button" class="btn btn-sm danger" data-rmcrop="' + esc(n) + '">Remove</button>') + '</td></tr>';
+    }).join('');
+    var sel = $('#farmCrop'), cur = sel.value;
+    sel.innerHTML = names.map(function (n) { return '<option>' + esc(n) + '</option>'; }).join('');
+    sel.value = names.indexOf(cur) >= 0 ? cur : (names.indexOf('Sugarcane') >= 0 ? 'Sugarcane' : names[0]);
+  }
+  $('#cropRows').addEventListener('click', function (e) {
+    var n = e.target.getAttribute('data-rmcrop');
+    if (!n) return;
+    if (!window.confirm('Remove crop “' + n + '” from the list?')) return;
+    delete data.crops[n]; persist(); renderCrops();
+  });
+  $('#btnSaveCrops').addEventListener('click', function () {
+    var errs = [];
+    Pan.$$('#cropRows input').forEach(function (inp) {
+      var n = inp.getAttribute('data-crop'), v = Pan.num(inp.value);
+      if (inp.value.trim() !== '' && (v === null || v < 0)) { errs.push(n + ': enter a number of 0 or more, or leave it empty.'); return; }
+      var old = data.crops[n].perHaDay;
+      if (v !== old) data.crops[n] = { perHaDay: v, source: v === null ? null : 'user' };
+    });
+    Pan.renderErrors($('#cropErrors'), errs);
+    if (errs.length) return;
+    persist(); renderCrops(); Pan.toast('Crop assumptions saved.');
+  });
+  $('#btnAddCrop').addEventListener('click', function () {
+    var n = $('#newCrop').value.trim(), errs = [];
+    if (!n) errs.push('Type a crop name first.');
+    else if (Object.keys(data.crops).some(function (k) { return k.toLowerCase() === n.toLowerCase(); })) errs.push('That crop is already in the list.');
+    Pan.renderErrors($('#cropErrors'), errs);
+    if (errs.length) return;
+    data.crops[n] = { perHaDay: null, source: null };
+    $('#newCrop').value = ''; persist(); renderCrops(); Pan.toast('Crop added.');
+  });
+
+  /* ---------- farmer form ---------- */
+  function resetFarmerForm() {
+    editFarmer = null; $('#farmerName').value = '';
+    $('#farmerFormTitle').textContent = '👨‍🌾 Add farmer'; $('#btnFarmerSave').textContent = '➕ Add farmer';
+    $('#btnFarmerCancel').hidden = true; Pan.renderErrors($('#farmerErrors'), []);
+  }
+  $('#farmerForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var name = $('#farmerName').value.trim(), errs = [];
+    if (!name) errs.push('Farmer name or ID is required.');
+    else if (data.farmers.some(function (f) { return f.id !== editFarmer && f.name.toLowerCase() === name.toLowerCase(); })) errs.push('A farmer with this name or ID already exists.');
+    Pan.renderErrors($('#farmerErrors'), errs);
+    if (errs.length) return;
+    if (editFarmer) { var fr = findFarmer(editFarmer); fr.name = name; fr.source = 'user'; Pan.toast('Farmer updated.'); }
+    else { data.farmers.push({ id: Pan.uid('fr'), name: name, source: 'user', farms: [] }); Pan.toast('Farmer added. Now add one or more farms.'); }
+    resetFarmerForm(); persist(); refreshAll();
+  });
+  $('#btnFarmerCancel').addEventListener('click', resetFarmerForm);
+
+  /* ---------- farm form ---------- */
+  function fillFarmerSelect(selected) {
+    var sel = $('#farmFarmer');
+    if (!data.farmers.length) { sel.innerHTML = '<option value="">Add a farmer first</option>'; return; }
+    sel.innerHTML = data.farmers.map(function (f) { return '<option value="' + esc(f.id) + '">' + esc(f.name) + '</option>'; }).join('');
+    sel.value = selected && findFarmer(selected) ? selected : data.farmers[data.farmers.length - 1].id;
+  }
+  function resetFarmForm(keepFarmer) {
+    var cur = $('#farmFarmer').value;
+    editFarm = null;
+    ['farmLabel', 'farmArea', 'farmDaily'].forEach(function (i) { $('#' + i).value = ''; });
+    $('#farmUnit').value = 'acre';
+    $('#farmCrop').value = Object.keys(data.crops).indexOf('Sugarcane') >= 0 ? 'Sugarcane' : Object.keys(data.crops)[0];
+    $('#farmIrr').value = Pan.IRRIGATION[0];
+    fillFarmerSelect(keepFarmer ? cur : null);
+    $('#farmFormTitle').textContent = '🚜 Add farm'; $('#btnFarmSave').textContent = '➕ Add farm';
+    $('#btnFarmCancel').hidden = true; Pan.renderErrors($('#farmErrors'), []);
+  }
+  $('#farmIrr').innerHTML = Pan.IRRIGATION.map(function (m) { return '<option>' + m + '</option>'; }).join('');
+
+  $('#btnEstimate').addEventListener('click', function (e) {
+    e.preventDefault();
+    var crop = $('#farmCrop').value, c = data.crops[crop], area = Pan.num($('#farmArea').value), unit = $('#farmUnit').value;
+    if (!c || c.perHaDay === null) { Pan.toast('No water assumption set for ' + crop + '. Enter one above, or type the daily need yourself.', 'err'); return; }
+    if (!(area > 0)) { Pan.toast('Enter the farm area first.', 'err'); return; }
+    var ha = unit === 'acre' ? area / Pan.ACRES_PER_HA : area;
+    $('#farmDaily').value = Math.round(ha * c.perHaDay * 100) / 100;
+    Pan.toast('Filled from your ' + crop + ' assumption. You can still edit it.');
+  });
+
+  $('#farmForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var i = { farmerId: $('#farmFarmer').value, area: Pan.num($('#farmArea').value), unit: $('#farmUnit').value, crop: $('#farmCrop').value,
+              irrigation: $('#farmIrr').value, daily: Pan.num($('#farmDaily').value) };
+    var errs = Pan.validateFarm(i, data.crops);
+    Pan.renderErrors($('#farmErrors'), errs);
+    if (errs.length) return;
+    var fr = findFarmer(i.farmerId), label = $('#farmLabel').value.trim();
+    if (editFarm) {
+      // the farm may be moved to another farmer
+      var oldFr = data.farmers.find(function (x) { return x.farms.some(function (f) { return f.id === editFarm; }); });
+      var farm = oldFr.farms.find(function (f) { return f.id === editFarm; });
+      if (oldFr !== fr) { oldFr.farms.splice(oldFr.farms.indexOf(farm), 1); fr.farms.push(farm); }
+      farm.label = label; farm.area = i.area; farm.unit = i.unit; farm.crop = i.crop; farm.irrigation = i.irrigation; farm.daily = i.daily; farm.source = 'user';
+      Pan.toast('Farm updated.');
+    } else {
+      fr.farms.push({ id: Pan.uid('farm'), label: label, area: i.area, unit: i.unit, crop: i.crop, irrigation: i.irrigation, daily: i.daily,
+                      stage: 'Grand growth', soil: 'dry', rain: 0, hours: null, slot: 'any', source: 'user' });
+      Pan.toast('Farm added.');
+    }
+    resetFarmForm(true); persist(); refreshAll();
+  });
+  $('#btnFarmCancel').addEventListener('click', function () { resetFarmForm(true); });
+
+  /* ---------- table ---------- */
+  function renderTable() {
+    var days = Pan.num(data.planningDays);
+    if (!data.farmers.length) {
+      $('#farmerRows').innerHTML = '<tr><td colspan="8"><div class="empty"><span class="big">🌾</span>No farmers registered yet.<br>Add a farmer above, or use <strong>Load demo data</strong> in the top bar to see an example.</div></td></tr>';
+      return;
+    }
+    var html = '', T = { farms: 0, ha: 0, ac: 0, daily: 0 };
+    data.farmers.forEach(function (fr) {
+      var t = Pan.farmerTotals(fr);
+      T.farms += t.farms; T.ha += t.ha; T.daily += t.daily;
+      html += '<tr class="farmer-row"><td>👨‍🌾 ' + esc(fr.name) + ' ' + Pan.badge(fr.source) + '</td><td></td><td class="num">' + t.farms + '</td>' +
+        '<td class="num">' + fmt(t.ha, 2) + '</td><td class="num">' + fmt(t.acres, 2) + '</td><td class="num">' + fmt(t.daily, 1) + '</td>' +
+        '<td class="num">' + (days ? fmt(t.daily * days, 0) : '—') + '</td>' +
+        '<td><button class="btn btn-sm blue" type="button" data-act="addfarm" data-id="' + esc(fr.id) + '">+ Farm</button>' +
+        '<button class="btn btn-sm outline" type="button" data-act="editfr" data-id="' + esc(fr.id) + '">Edit</button>' +
+        '<button class="btn btn-sm danger" type="button" data-act="delfr" data-id="' + esc(fr.id) + '">Delete</button></td></tr>';
+      if (!fr.farms.length) html += '<tr class="farm-row"><td colspan="8" class="muted small">No farms yet for this farmer.</td></tr>';
+      fr.farms.forEach(function (f) {
+        var ha = Pan.farmHa(f), d = Pan.num(f.daily) || 0;
+        html += '<tr class="farm-row"><td>↳ ' + esc(Pan.farmName(fr, f)) + ' ' + Pan.badge(f.source) + '</td><td>' + esc(f.crop) + ' · ' + esc(f.irrigation) + '</td><td class="num">1</td>' +
+          '<td class="num">' + fmt(ha, 2) + '</td><td class="num">' + fmt(ha * Pan.ACRES_PER_HA, 2) + '</td><td class="num">' + fmt(d, 1) + '</td>' +
+          '<td class="num">' + (days ? fmt(d * days, 0) : '—') + '</td>' +
+          '<td><button class="btn btn-sm outline" type="button" data-act="editfarm" data-id="' + esc(f.id) + '">Edit</button>' +
+          '<button class="btn btn-sm danger" type="button" data-act="delfarm" data-id="' + esc(f.id) + '">Delete</button></td></tr>';
+      });
+    });
+    html += '<tr class="total-row"><td>Total</td><td></td><td class="num">' + T.farms + '</td><td class="num">' + fmt(T.ha, 2) + '</td><td class="num">' + fmt(T.ha * Pan.ACRES_PER_HA, 2) +
+      '</td><td class="num">' + fmt(T.daily, 1) + '</td><td class="num">' + (days ? fmt(T.daily * days, 0) : 'Set planning days') + '</td><td></td></tr>';
+    $('#farmerRows').innerHTML = html;
+  }
+
+  $('#farmerRows').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-act]');
+    if (!b) return;
+    var act = b.dataset.act, id = b.dataset.id;
+    if (act === 'addfarm') {
+      resetFarmForm(false); $('#farmFarmer').value = id; $('#farmArea').focus();
+      $('#farmForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else if (act === 'editfr') {
+      var fr = findFarmer(id); resetFarmerForm(); editFarmer = id; $('#farmerName').value = fr.name;
+      $('#farmerFormTitle').textContent = '✏️ Edit farmer'; $('#btnFarmerSave').textContent = '💾 Update farmer'; $('#btnFarmerCancel').hidden = false;
+      $('#farmerForm').scrollIntoView({ behavior: 'smooth', block: 'center' }); $('#farmerName').focus();
+    } else if (act === 'delfr') {
+      var f2 = findFarmer(id);
+      if (!window.confirm('Delete farmer “' + f2.name + '” and all ' + f2.farms.length + ' of their farms?')) return;
+      data.farmers = data.farmers.filter(function (x) { return x.id !== id; });
+      if (editFarmer === id) resetFarmerForm();
+      persist(); refreshAll(); Pan.toast('Farmer deleted.');
+    } else if (act === 'editfarm') {
+      var owner = data.farmers.find(function (x) { return x.farms.some(function (f) { return f.id === id; }); });
+      var farm = owner.farms.find(function (f) { return f.id === id; });
+      resetFarmForm(false); editFarm = id; fillFarmerSelect(owner.id);
+      $('#farmLabel').value = farm.label || ''; $('#farmArea').value = farm.area; $('#farmUnit').value = farm.unit;
+      if (data.crops[farm.crop]) $('#farmCrop').value = farm.crop;
+      $('#farmIrr').value = farm.irrigation; $('#farmDaily').value = farm.daily;
+      $('#farmFormTitle').textContent = '✏️ Edit farm'; $('#btnFarmSave').textContent = '💾 Update farm'; $('#btnFarmCancel').hidden = false;
+      $('#farmForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else if (act === 'delfarm') {
+      var own = data.farmers.find(function (x) { return x.farms.some(function (f) { return f.id === id; }); });
+      if (!window.confirm('Delete this farm record?')) return;
+      own.farms = own.farms.filter(function (f) { return f.id !== id; });
+      if (editFarm === id) resetFarmForm(true);
+      persist(); refreshAll(); Pan.toast('Farm deleted.');
+    }
+  });
+
+  function refreshAll() { renderStats(); renderCrops(); renderTable(); fillFarmerSelect($('#farmFarmer').value); }
+
+  renderCrops();
+  resetFarmForm(false);
+  renderStats();
+  renderTable();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panirakhandar · Smart Village Water Management</title>
+<meta name="description" content="Panirakhandar helps Western Ghats farmers estimate stream water, plan storage ponds and share summer irrigation water fairly.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-page="dashboard">
+<div id="app-header"></div>
+
+<section class="hero big">
+  <div class="container">
+    <div class="sub">Smart Village Water Management</div>
+    <h1>Panirakhandar</h1>
+    <div class="tag">Save Water Today. Sustain Farms Tomorrow.</div>
+    <p>Monsoon streams in the Western Ghats carry plenty of water, yet sugarcane farms run dry in summer. Panirakhandar (pani-water)+ (Rakhandar-Gaurdian)helps a village estimate what its nala(stream) carries, plan storage ponds, and share summer irrigation water fairly.</p>
+    <div class="hero-actions">
+      <a class="btn light" href="stream.html">🌊 Start with the stream</a>
+      <button class="btn blue" type="button" id="heroDemo">🧪 Try with demo data</button>
+    </div>
+  </div>
+</section>
+
+<main class="container">
+  <noscript><div class="alert err">This website needs JavaScript. Please enable it in your browser.</div></noscript>
+
+  <h2>Village water overview</h2>
+  <p class="muted small">Every figure below is calculated from what you entered on the other pages. Anything missing shows “Data not entered yet” rather than a guess.</p>
+  <div id="stats" class="grid cols-4 mb"></div>
+
+  <div class="grid cols-2" style="align-items:start">
+    <section class="card">
+      <h2>📊 Water available vs seasonal demand</h2>
+      <div id="chart"></div>
+      <p id="verdict" class="small muted"></p>
+    </section>
+    <section class="card">
+      <h2>🏞️ Storage status</h2>
+      <div id="storage"></div>
+    </section>
+  </div>
+
+  <h2 class="section-title">Plan your village’s water</h2>
+  <div class="grid cols-4" id="shortcuts"></div>
+
+  <div class="grid cols-2 mt" style="align-items:start">
+    <section class="card">
+      <h2>✅ Setup progress</h2>
+      <ul class="steps" id="steps"></ul>
+    </section>
+    <section class="card">
+      <h2>ℹ️ About these numbers</h2>
+      <ul class="clean small">
+        <li>All results are estimates from the values you enter. Nothing here is live data from sensors or weather services.</li>
+        <li>Capturable water is only a chosen share of the stream flow, never the whole flow.</li>
+        <li>Pond results are planning guides. They are not construction designs.</li>
+        <li>Data stays in this browser (localStorage). Use <strong>Load demo data</strong> / <strong>Reset data</strong> in the top bar to try or clear it.</li>
+      </ul>
+    </section>
+  </div>
+</main>
+
+<div id="app-footer"></div>
+<script src="app.js"></script>
+<script>
+Pan.ready(function () {
+  Pan.renderShell('dashboard');
+  var data = Pan.load(), S = Pan.summary(data);
+  var $ = Pan.$, fmt = Pan.fmt, esc = Pan.esc;
+  $('#heroDemo').addEventListener('click', Pan.loadDemo);
+
+  /* ---------- stat cards ---------- */
+  var t = S.totals, mon = S.monsoon, pond = S.pond, al = S.alloc;
+  function card(cls, ico, lbl, val, sub, href) {
+    return '<a class="stat ' + cls + '" href="' + href + '"><span class="ico">' + ico + '</span><div class="lbl">' + lbl + '</div>' +
+      (val === null ? '<div class="val na">' + Pan.NOT_ENTERED + '</div>' : '<div class="val">' + val + '</div>') + '<div class="sub">' + sub + '</div></a>';
+  }
+  var u = function (x, unit, d) { return fmt(x, d || 0) + ' <small>' + unit + '</small>'; };
+  var cards = [
+    card('b', '🌧️', 'Monsoon water (estimated)', mon ? u(mon.volume, 'm³') : null, 'total flow volume', 'stream.html'),
+    card('b', '🪣', 'Capturable water', mon ? u(mon.capturable, 'm³') : null, mon ? fmt(mon.capture, 1) + '% of monsoon flow' : 'set on Stream page', 'stream.html'),
+    card('g', '👨‍🌾', 'Registered farmers', t.farmers ? fmt(t.farmers) : null, t.farmers ? t.farms + ' farms' : 'add on Farmers page', 'farmers.html'),
+    card('g', '🌱', 'Cultivated area', t.farms ? u(t.ha, 'ha', 2) : null, t.farms ? fmt(t.acres, 2) + ' acres' : '', 'farmers.html'),
+    card('y', '☀️', 'Daily irrigation demand', t.daily > 0 ? u(t.daily, 'm³/day', 1) : null, 'sum of all farms', 'farmers.html'),
+    card('y', '🗓️', 'Seasonal irrigation demand', S.demand !== null ? u(S.demand, 'm³') : null, S.planningDays ? 'over ' + fmt(S.planningDays) + ' days' : 'set planning days', 'farmers.html'),
+    card('b', '🏞️', 'Proposed ponds', pond.ok ? fmt(pond.count) + ' <small>ponds</small>' : null, pond.ok ? fmt(pond.nominalPer, 0) + ' m³ each' : 'plan on Pond page', 'ponds.html'),
+    card('b', '🛢️', 'Total storage capacity', pond.ok ? u(pond.totalNominal, 'm³') : null, pond.ok ? 'nominal, before losses' : '', 'ponds.html'),
+    card('g', '💧', 'Summer water for allocation', al.ok ? u(al.allocatable, 'm³') : null, al.ok ? 'after ' + fmt(al.reservePct, 1) + '% reserve of ' + fmt(al.available, 0) + ' m³' : 'enter on Planner page', 'planner.html'),
+    card(al.ok && al.unmet > 0.005 ? 'r' : 'g', '⚠️', 'Unmet irrigation demand', al.ok ? u(al.unmet, 'm³') : null, al.ok ? (al.unmet > 0.005 ? 'shortage in the summer plan' : 'all demand covered') : '', 'planner.html')
+  ];
+  $('#stats').innerHTML = cards.join('');
+
+  /* ---------- comparison chart ---------- */
+  var rows = [];
+  if (mon) rows.push(['Capturable monsoon water', mon.capturable, 'c-blue']);
+  if (S.demand !== null) rows.push(['Seasonal irrigation demand', S.demand, 'c-orange']);
+  if (pond.ok) rows.push(['Storage target (with reserve, losses)', pond.target, 'c-orange']);
+  if (al.ok) { rows.push(['Summer water available', al.available, 'c-blue']); rows.push(['Allocatable after reserve', al.allocatable, 'c-green']); rows.push(['Allocated to farmers', al.totalAllocated, 'c-green']); }
+  if (!rows.length) $('#chart').innerHTML = '<div class="empty"><span class="big">📉</span>' + Pan.NOT_ENTERED + '. Enter stream and farmer data to see the comparison.</div>';
+  else {
+    var max = Math.max.apply(null, rows.map(function (r) { return r[1]; })) || 1;
+    $('#chart').innerHTML = rows.map(function (r) {
+      return '<div class="hbar-row"><div>' + r[0] + '</div><div class="hbar"><span class="' + r[2] + '" style="width:' + Math.max(1, r[1] / max * 100) + '%"></span></div><div class="v">' + fmt(r[1], 0) + ' m³</div></div>';
+    }).join('');
+  }
+  var v = '';
+  if (mon && S.demand !== null) v = 'Capturable monsoon water equals <strong>' + fmt(mon.capturable / S.demand * 100, 0) + '%</strong> of seasonal irrigation demand' + (mon.capturable < S.demand ? ' (a shortfall before any losses).' : '.');
+  $('#verdict').innerHTML = v;
+
+  /* ---------- storage status ---------- */
+  if (!pond.ok) {
+    $('#storage').innerHTML = '<div class="empty"><span class="big">🏞️</span>' + Pan.NOT_ENTERED + '.<br>Still needed: ' + pond.missing.map(function (m) { return '<a href="' + m.href + '">' + m.text + '</a>'; }).join('; ') + '</div>';
+  } else {
+    var pct = Math.max(0, Math.min(100, pond.capturable / pond.target * 100)), short = pond.shortfall > 0;
+    $('#storage').innerHTML = '<div class="tank-wrap"><div class="tank' + (short ? ' low' : '') + '"><div class="tank-fill" style="height:' + pct + '%"></div><div class="tank-label">' + fmt(pct, 0) + '%</div></div><div>' +
+      '<p><span class="badge ' + (short ? 'warnb' : 'okb') + '">' + (short ? 'Shortfall' : 'Target can be met') + '</span></p>' +
+      '<p class="small">Capturable water covers <strong>' + fmt(pct, 0) + '%</strong> of the ' + fmt(pond.target, 0) + ' m³ storage target.</p>' +
+      '<p class="small">' + (short ? 'Shortfall: <strong>' + fmt(pond.shortfall, 0) + ' m³</strong>. More ponds cannot create water.' : 'Surplus: <strong>' + fmt(pond.surplus, 0) + ' m³</strong> on paper.') + '</p>' +
+      '<p class="small muted">' + pond.count + ' ponds × ' + fmt(pond.nominalPer, 0) + ' m³ = ' + fmt(pond.totalNominal, 0) + ' m³ nominal.</p></div></div>';
+  }
+
+  /* ---------- shortcuts ---------- */
+  var sc = [
+    ['stream.html', '🌊', 'Stream Water Assessment', 'Estimate monsoon and summer flow and what can be captured.'],
+    ['farmers.html', '🌾', 'Farmer & Water Demand', 'Register farmers and farms and total their irrigation needs.'],
+    ['ponds.html', '💧', 'Smart Pond Planning', 'Size storage ponds and check the water gap.'],
+    ['planner.html', '📅', 'Summer Water Planner', 'Share water fairly and plan weekly irrigation turns.']
+  ];
+  $('#shortcuts').innerHTML = sc.map(function (s) {
+    return '<a class="card hover shortcut" href="' + s[0] + '"><div class="big">' + s[1] + '</div><h3>' + s[2] + '</h3><p>' + s[3] + '</p><span class="go">Open →</span></a>';
+  }).join('');
+
+  /* ---------- progress ---------- */
+  var steps = [
+    [!!mon, 'Stream water estimated (monsoon)', 'stream.html'],
+    [t.farms > 0, 'Farmers and farms registered', 'farmers.html'],
+    [S.demand !== null, 'Planning period set, seasonal demand known', 'farmers.html'],
+    [pond.ok, 'Pond plan calculated', 'ponds.html'],
+    [al.ok, 'Summer water allocation done', 'planner.html']
+  ];
+  $('#steps').innerHTML = steps.map(function (s) {
+    return '<li class="' + (s[0] ? 'done' : '') + '"><span class="dot">' + (s[0] ? '✓' : '·') + '</span><a href="' + s[2] + '">' + s[1] + '</a></li>';
+  }).join('');
+});
+</script>
+</body>
+</html>

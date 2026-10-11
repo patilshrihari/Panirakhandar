@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Pond Planning · Panirakhandar</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-page="ponds">
+<div id="app-header"></div>
+
+<section class="hero small">
+  <div class="container">
+    <div class="crumb">Panirakhandar › Step 3</div>
+    <h1>💧 Smart Pond Planning</h1>
+    <p>Work out how much storage is needed to carry monsoon water into summer, and whether the stream can actually fill it.</p>
+  </div>
+</section>
+
+<main class="container">
+  <noscript><div class="alert err">This website needs JavaScript. Please enable it in your browser.</div></noscript>
+
+  <div class="alert warn">
+    <strong>Planning estimate, not a construction design.</strong> Real ponds need local engineering, safety, environmental and legal assessment
+    (soil, seepage, embankment safety, land rights, permissions and downstream impact).
+  </div>
+
+  <div class="grid cols-3 mb" id="inputsFromOthers"></div>
+
+  <div class="grid cols-2" style="align-items:start">
+    <section class="card">
+      <div class="card-head"><h2>Pond assumptions</h2><span id="srcBadge"></span></div>
+      <form id="pondForm" novalidate>
+        <div class="radio-cards">
+          <label class="radio-card" id="cardCap"><input type="radio" name="pmode" value="capacity"> <strong>Enter capacity</strong><br><span class="small muted">Nominal capacity of one pond in m³</span></label>
+          <label class="radio-card" id="cardDim"><input type="radio" name="pmode" value="dimensions"> <strong>Enter dimensions</strong><br><span class="small muted">Rectangular pond: length × width × usable depth</span></label>
+        </div>
+        <div id="capFields" class="form-grid">
+          <div class="field"><label for="capacity">Nominal capacity per pond (m³)</label><input type="number" id="capacity" step="any" min="0" inputmode="decimal"></div>
+        </div>
+        <div id="dimFields" class="form-grid" hidden>
+          <div class="field"><label for="length">Length (m)</label><input type="number" id="length" step="any" min="0" inputmode="decimal"></div>
+          <div class="field"><label for="width">Width (m)</label><input type="number" id="width" step="any" min="0" inputmode="decimal"></div>
+          <div class="field"><label for="depth">Usable water depth (m)</label><input type="number" id="depth" step="any" min="0" inputmode="decimal"></div>
+        </div>
+        <p class="small muted" id="dimResult"></p>
+        <div class="form-grid mt">
+          <div class="field"><label for="loss">Storage loss (%)</label><input type="number" id="loss" step="any" min="0" max="99.99" inputmode="decimal"><span class="hint">Seepage + evaporation over the storage period. Must be below 100.</span></div>
+          <div class="field"><label for="reserve">Reserve (%)</label><input type="number" id="reserve" step="any" min="0" max="100" inputmode="decimal"><span class="hint">Extra water kept on top of irrigation demand for uncertainty or other needs.</span></div>
+        </div>
+        <div id="formErrors" class="alert err" hidden></div>
+        <div class="btn-row"><button class="btn" type="submit">💾 Calculate &amp; save</button></div>
+      </form>
+    </section>
+
+    <section class="card" id="assumptionsCard">
+      <h2>How this is calculated</h2>
+      <ul class="clean small">
+        <li><strong>Required irrigation storage</strong> = seasonal irrigation demand (from the Farmers page).</li>
+        <li><strong>Reserve</strong> = demand × reserve %. It is added to the requirement, so the water that must reach the fields is demand × (1 + reserve %).</li>
+        <li><strong>Storage target before losses</strong> = (demand + reserve) ÷ (1 − loss %). Losses are counted <u>once</u>, here, so the pond must hold extra to cover them.</li>
+        <li><strong>Usable capacity per pond</strong> = nominal capacity × (1 − loss %).</li>
+        <li><strong>Minimum pond count</strong> = rounded-up (target ÷ nominal capacity). Same loss % as above, not applied again.</li>
+        <li><strong>Surplus / shortage</strong> = capturable monsoon water − storage target. Ponds cannot create water: if the stream cannot supply the target, the shortfall stays a shortfall however many ponds you build.</li>
+      </ul>
+    </section>
+  </div>
+
+  <h2 class="section-title">Result</h2>
+  <div id="resultArea" class="card"></div>
+</main>
+
+<div id="app-footer"></div>
+<script src="app.js"></script>
+<script>
+Pan.ready(function () {
+  Pan.renderShell('ponds');
+  var data = Pan.load();
+  var $ = Pan.$, fmt = Pan.fmt;
+  var fields = ['capacity', 'length', 'width', 'depth', 'loss', 'reserve'];
+
+  function mode() { return document.querySelector('input[name=pmode]:checked').value; }
+  function setMode(m) {
+    document.querySelector('input[name=pmode][value=' + m + ']').checked = true;
+    $('#cardCap').classList.toggle('checked', m === 'capacity');
+    $('#cardDim').classList.toggle('checked', m === 'dimensions');
+    $('#capFields').hidden = m !== 'capacity';
+    $('#dimFields').hidden = m !== 'dimensions';
+    updateDim();
+  }
+  function updateDim() {
+    var L = Pan.num($('#length').value), W = Pan.num($('#width').value), D = Pan.num($('#depth').value);
+    $('#dimResult').textContent = (mode() === 'dimensions' && L > 0 && W > 0 && D > 0)
+      ? 'Nominal volume = ' + fmt(L, 2) + ' × ' + fmt(W, 2) + ' × ' + fmt(D, 2) + ' = ' + fmt(L * W * D, 0) + ' m³ per pond' : '';
+  }
+
+  function renderInputs() {
+    var mon = Pan.calcStream(data.stream.monsoon), D = Pan.seasonalDemand(data), days = Pan.num(data.planningDays);
+    function c(cls, ico, lbl, val, sub, href) {
+      return '<a class="stat ' + cls + '" href="' + href + '"><span class="ico">' + ico + '</span><div class="lbl">' + lbl + '</div>' +
+        (val === null ? '<div class="val na">' + Pan.NOT_ENTERED + '</div>' : '<div class="val">' + val + '</div>') + '<div class="sub">' + sub + '</div></a>';
+    }
+    $('#inputsFromOthers').innerHTML =
+      c('b', '🌧️', 'Capturable monsoon water', mon ? fmt(mon.capturable, 0) + ' <small>m³</small>' : null, 'from Stream Water page ' + (mon ? Pan.badge(data.stream.monsoon.source) : '→ enter it'), 'stream.html') +
+      c('y', '🌾', 'Seasonal irrigation demand', D !== null ? fmt(D, 0) + ' <small>m³</small>' : null, 'from Farmers page' + (days ? ' · ' + fmt(days) + ' days' : ' → set farms and planning days'), 'farmers.html') +
+      c('g', '📆', 'Planning period', days ? fmt(days) + ' <small>days</small>' : null, 'edit on Farmers page', 'farmers.html');
+  }
+
+  function fill() {
+    var p = data.ponds;
+    setMode(p.mode || 'capacity');
+    fields.forEach(function (f) { $('#' + f).value = p[f] === null || p[f] === undefined ? '' : p[f]; });
+    $('#srcBadge').innerHTML = p.entered ? Pan.badge(p.source) : '';
+    updateDim();
+  }
+
+  function renderResult() {
+    var r = Pan.calcPonds(data), box = $('#resultArea');
+    if (!r.ok) {
+      box.innerHTML = '<div class="empty"><span class="big">🧮</span>' + Pan.NOT_ENTERED + '. Still needed:<ul class="clean" style="display:inline-block;text-align:left">' +
+        r.missing.map(function (m) { return '<li><a href="' + m.href + '">' + m.text + '</a></li>'; }).join('') + '</ul></div>';
+      return;
+    }
+    var short = r.shortfall > 0, h = '';
+    if (data.ponds.source === 'demo') h += '<div class="alert warn">🧪 <strong>Example pond assumptions.</strong> Replace with values for your site.</div>';
+    if (short) {
+      h += '<div class="alert err"><strong>Shortfall of ' + fmt(r.shortfall, 0) + ' m³.</strong> The stream’s capturable monsoon water (' + fmt(r.capturable, 0) +
+        ' m³) is less than the storage target (' + fmt(r.target, 0) + ' m³). Building more ponds will not create water. Options: capture a larger (safe) share, reduce losses, improve irrigation efficiency, or reduce the area irrigated. ' +
+        'Ponds that could actually be filled: about ' + r.fillableCount + '.</div>';
+    } else {
+      h += '<div class="alert ok"><strong>Enough water on paper.</strong> Capturable monsoon water covers the storage target with a surplus of ' + fmt(r.surplus, 0) + ' m³ (before checking site conditions).</div>';
+    }
+    h += '<div class="grid cols-2" style="align-items:center"><div>';
+    h += '<div class="result-grid">' +
+      res('Required irrigation storage', fmt(r.demand, 0) + ' <small>m³</small>') +
+      res('Reserve (' + fmt(r.reserve, 1) + '%)', fmt(r.reserveVol, 0) + ' <small>m³</small>') +
+      res('Storage target before losses', fmt(r.target, 0) + ' <small>m³</small>') +
+      res('Available capturable water', fmt(r.capturable, 0) + ' <small>m³</small>') +
+      res('Usable capacity per pond', fmt(r.usablePer, 0) + ' <small>m³</small>') +
+      res('Recommended number of ponds', fmt(r.count) + ' <small>ponds</small>', 'good') +
+      res('Total proposed storage (nominal)', fmt(r.totalNominal, 0) + ' <small>m³</small>') +
+      res(short ? 'Shortage' : 'Surplus', fmt(short ? r.shortfall : r.surplus, 0) + ' <small>m³</small>', short ? 'bad' : 'good') +
+      '</div></div>';
+    var pct = Math.max(0, Math.min(100, r.capturable / r.target * 100));
+    h += '<div class="tank-wrap"><div class="tank' + (pct < 100 ? ' low' : '') + '"><div class="tank-fill" style="height:' + pct + '%"></div><div class="tank-label">' + fmt(pct, 0) + '%</div></div>' +
+      '<div><strong>Storage status</strong><p class="small muted">Capturable water as a share of the storage target. 100% or more means the target can be met on paper.</p>' +
+      '<p class="small">Water actually deliverable to fields after losses: <strong>' + fmt(r.deliverable, 0) + ' m³</strong> (' + fmt(r.coverage * 100, 0) + '% of demand + reserve).</p></div></div></div>';
+    h += '<h3 class="mt">Working</h3><div class="formula">' +
+      '<span class="k">Target</span>   = (' + fmt(r.demand, 0) + ' + ' + fmt(r.reserveVol, 0) + ') ÷ (1 − ' + fmt(r.loss, 1) + '/100) = ' + fmt(r.target, 0) + ' m³\n' +
+      '<span class="k">Usable per pond</span> = ' + fmt(r.nominalPer, 0) + ' × (1 − ' + fmt(r.loss, 1) + '/100) = ' + fmt(r.usablePer, 0) + ' m³\n' +
+      '<span class="k">Pond count</span> = ceiling(' + fmt(r.target, 0) + ' ÷ ' + fmt(r.nominalPer, 0) + ') = ' + r.count + '\n' +
+      '<span class="k">Total nominal</span> = ' + r.count + ' × ' + fmt(r.nominalPer, 0) + ' = ' + fmt(r.totalNominal, 0) + ' m³\n' +
+      '<span class="k">Balance</span> = capturable − target = ' + fmt(r.capturable, 0) + ' − ' + fmt(r.target, 0) + ' = ' + fmt(r.balance, 0) + ' m³</div>';
+    box.innerHTML = h;
+  }
+  function res(l, v, cls) { return '<div class="result ' + (cls || '') + '"><div class="lbl">' + l + '</div><div class="val">' + v + '</div></div>'; }
+
+  document.querySelectorAll('input[name=pmode]').forEach(function (r) { r.addEventListener('change', function () { setMode(mode()); }); });
+  ['length', 'width', 'depth'].forEach(function (f) { $('#' + f).addEventListener('input', updateDim); });
+
+  $('#pondForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var i = { mode: mode() };
+    fields.forEach(function (f) { i[f] = Pan.num($('#' + f).value); });
+    var errs = Pan.validatePond(i);
+    Pan.renderErrors($('#formErrors'), errs);
+    if (errs.length) return;
+    var p = data.ponds;
+    p.mode = i.mode; fields.forEach(function (f) { p[f] = i[f]; });
+    if (i.mode === 'capacity') { p.length = p.width = p.depth = null; } else { p.capacity = null; }
+    p.entered = true; p.source = 'user';
+    Pan.save(data); Pan.renderShell('ponds');
+    $('#srcBadge').innerHTML = Pan.badge('user');
+    renderResult(); Pan.toast('Pond plan saved.');
+  });
+
+  renderInputs(); fill(); renderResult();
+});
+</script>
+</body>
+</html>

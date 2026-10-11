@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stream Water Assessment · Panirakhandar</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-page="stream">
+<div id="app-header"></div>
+
+<section class="hero small">
+  <div class="container">
+    <div class="crumb">Panirakhandar › Step 1</div>
+    <h1>🌊 Stream Water Assessment</h1>
+    <p>Estimate how much water your village nala carries in the monsoon and in summer, and how much of it could realistically be captured.</p>
+  </div>
+</section>
+
+<main class="container">
+  <noscript><div class="alert err">This website needs JavaScript. Please enable it in your browser.</div></noscript>
+
+  <div class="alert warn">
+    <strong>Estimates only.</strong> Variable flow, irregular stream cross-sections, measurement errors and the need to leave
+    water in the stream for downstream users and wildlife (environmental flow) all affect accuracy.
+    The “capturable” figure is only the share you choose to capture. It is <u>not</u> the whole seasonal flow.
+  </div>
+
+  <div class="grid cols-2" style="align-items:start">
+    <section class="card">
+      <div class="card-head">
+        <h2>Enter stream data</h2>
+        <span id="srcBadge"></span>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="Season">
+        <button class="tab active" type="button" data-season="monsoon" role="tab">🌧️ Monsoon</button>
+        <button class="tab" type="button" data-season="summer" role="tab">☀️ Summer</button>
+      </div>
+
+      <form id="streamForm" novalidate>
+        <div class="radio-cards">
+          <label class="radio-card" id="cardMeasure">
+            <input type="radio" name="mode" value="measure"> <strong>Mode A</strong><br>
+            <span class="small muted">Estimate from measurements (width, depth, velocity…)</span>
+          </label>
+          <label class="radio-card" id="cardVolume">
+            <input type="radio" name="mode" value="volume"> <strong>Mode B</strong><br>
+            <span class="small muted">Enter an estimated seasonal volume directly</span>
+          </label>
+        </div>
+
+        <div id="measureFields" class="form-grid">
+          <div class="field"><label for="width">Stream width (m)</label>
+            <input type="number" id="width" step="any" min="0" inputmode="decimal"><span class="hint">Average width of the water surface.</span></div>
+          <div class="field"><label for="depth">Average water depth (m)</label>
+            <input type="number" id="depth" step="any" min="0" inputmode="decimal"><span class="hint">Mean of several depth readings.</span></div>
+          <div class="field"><label for="velocity">Average flow velocity (m/s)</label>
+            <input type="number" id="velocity" step="any" min="0" inputmode="decimal"><span class="hint">E.g. time a floating leaf over a known distance.</span></div>
+          <div class="field"><label for="hours">Flowing hours per day (h)</label>
+            <input type="number" id="hours" step="any" min="0" max="24" inputmode="decimal"><span class="hint">0 to 24.</span></div>
+          <div class="field"><label for="days">Days in this period</label>
+            <input type="number" id="days" step="1" min="1" max="366" inputmode="numeric"><span class="hint">Whole days, e.g. length of the season.</span></div>
+        </div>
+
+        <div id="volumeFields" class="form-grid" hidden>
+          <div class="field"><label for="seasonalVolume">Total seasonal water volume (m³)</label>
+            <input type="number" id="seasonalVolume" step="any" min="0" inputmode="decimal"><span class="hint">Your own estimate for the whole season.</span></div>
+        </div>
+
+        <div class="form-grid mt">
+          <div class="field"><label for="capture">Capture percentage (%)</label>
+            <input type="number" id="capture" step="any" min="0" max="100" inputmode="decimal">
+            <span class="hint">Share of the flow you could safely divert or store. Keep it modest.</span></div>
+        </div>
+
+        <div id="formErrors" class="alert err" hidden></div>
+        <div class="btn-row">
+          <button class="btn" type="submit">💾 Calculate &amp; save</button>
+          <button class="btn outline" type="button" id="btnClear">Clear this season</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card" id="resultCard">
+      <h2 id="resultTitle">Result</h2>
+      <div id="resultBody"></div>
+    </section>
+  </div>
+
+  <h2 class="section-title">Monsoon vs summer at a glance</h2>
+  <div class="card"><div class="table-wrap"><table>
+    <thead><tr><th>Season</th><th>Method</th><th class="num">Flow rate (m³/s)</th><th class="num">Total volume (m³)</th><th class="num">Capture %</th><th class="num">Capturable (m³)</th><th>Source</th></tr></thead>
+    <tbody id="overview"></tbody>
+  </table></div>
+  <p class="small muted mt">The <strong>monsoon capturable volume</strong> feeds the Pond Planning page. Summer figures are shown for reference and can help you decide how much water to enter on the Summer Planner.</p></div>
+</main>
+
+<div id="app-footer"></div>
+<script src="app.js"></script>
+<script>
+Pan.ready(function () {
+  Pan.renderShell('stream');
+  var data = Pan.load();
+  var season = 'monsoon';
+  var $ = Pan.$, fmt = Pan.fmt, esc = Pan.esc;
+  var NAMES = { monsoon: 'Monsoon', summer: 'Summer' };
+  var fields = ['width', 'depth', 'velocity', 'hours', 'days', 'seasonalVolume', 'capture'];
+
+  function setMode(mode) {
+    $('#cardMeasure').classList.toggle('checked', mode === 'measure');
+    $('#cardVolume').classList.toggle('checked', mode === 'volume');
+    document.querySelector('input[name=mode][value=' + mode + ']').checked = true;
+    $('#measureFields').hidden = mode !== 'measure';
+    $('#volumeFields').hidden = mode !== 'volume';
+  }
+  function currentMode() { return document.querySelector('input[name=mode]:checked').value; }
+
+  function fillForm() {
+    var s = data.stream[season];
+    setMode(s.mode || 'measure');
+    fields.forEach(function (f) { $('#' + f).value = s[f] === null || s[f] === undefined ? '' : s[f]; });
+    Pan.renderErrors($('#formErrors'), []);
+    fields.forEach(function (f) { $('#' + f).classList.remove('invalid'); });
+    $('#srcBadge').innerHTML = s.entered ? Pan.badge(s.source) : '';
+    document.querySelectorAll('.tab').forEach(function (t) { t.classList.toggle('active', t.dataset.season === season); });
+    renderResult();
+  }
+
+  function readForm() {
+    var i = { mode: currentMode() };
+    fields.forEach(function (f) { i[f] = Pan.num($('#' + f).value); });
+    return i;
+  }
+
+  function renderResult() {
+    var s = data.stream[season], r = Pan.calcStream(s);
+    $('#resultTitle').textContent = NAMES[season] + ' result';
+    var box = $('#resultBody');
+    if (!r) {
+      box.innerHTML = '<div class="empty"><span class="big">📏</span>' + Pan.NOT_ENTERED + '.<br>Fill in the form and press <strong>Calculate &amp; save</strong>.</div>';
+      return;
+    }
+    var h = '';
+    if (s.source === 'demo') h += '<div class="alert warn">🧪 <strong>Example data.</strong> These numbers are made up for demonstration. Replace them with your own measurements.</div>';
+    h += '<div class="result-grid">';
+    if (r.mode === 'measure') h += '<div class="result"><div class="lbl">Flow rate</div><div class="val">' + fmt(r.flow, 4) + ' <small>m³/s</small></div></div>';
+    else h += '<div class="result"><div class="lbl">Flow rate</div><div class="val" style="font-size:1rem">Not applicable in Mode B</div></div>';
+    h += '<div class="result"><div class="lbl">Total estimated volume</div><div class="val">' + fmt(r.volume, 0) + ' <small>m³</small></div></div>';
+    h += '<div class="result good"><div class="lbl">Capturable volume (' + fmt(r.capture, 1) + '%)</div><div class="val">' + fmt(r.capturable, 0) + ' <small>m³</small></div></div>';
+    h += '</div>';
+    h += '<h3>Formulas used</h3><div class="formula">';
+    if (r.mode === 'measure') {
+      var w = Pan.num(s.width), d = Pan.num(s.depth), v = Pan.num(s.velocity), hh = Pan.num(s.hours), n = Pan.num(s.days);
+      h += '<span class="k">Flow rate (m³/s)</span> = width × depth × velocity\n' +
+           '                = ' + fmt(w, 3) + ' × ' + fmt(d, 3) + ' × ' + fmt(v, 3) + ' = ' + fmt(r.flow, 4) + ' m³/s\n' +
+           '<span class="k">Volume (m³)</span>     = flow rate × hours per day × 3,600 × days\n' +
+           '                = ' + fmt(r.flow, 4) + ' × ' + fmt(hh, 2) + ' × 3,600 × ' + fmt(n, 0) + ' = ' + fmt(r.volume, 0) + ' m³\n';
+    } else {
+      h += '<span class="k">Volume (m³)</span>     = value you entered = ' + fmt(r.volume, 0) + ' m³\n';
+    }
+    h += '<span class="k">Capturable (m³)</span> = volume × capture % ÷ 100\n' +
+         '                = ' + fmt(r.volume, 0) + ' × ' + fmt(r.capture, 1) + ' ÷ 100 = ' + fmt(r.capturable, 0) + ' m³';
+    h += '</div>';
+    h += '<p class="small muted mt">Remaining ' + fmt(r.volume - r.capturable, 0) + ' m³ (' + fmt(100 - r.capture, 1) + '%) is assumed to stay in the stream. Check local rules and environmental-flow needs before diverting water.</p>';
+    box.innerHTML = h;
+  }
+
+  function renderOverview() {
+    var rows = ['monsoon', 'summer'].map(function (k) {
+      var s = data.stream[k], r = Pan.calcStream(s);
+      if (!r) return '<tr><td>' + NAMES[k] + '</td><td colspan="6" class="muted">' + Pan.NOT_ENTERED + '</td></tr>';
+      return '<tr><td><strong>' + NAMES[k] + '</strong></td><td>' + (r.mode === 'measure' ? 'Measurements' : 'Entered volume') + '</td>' +
+        '<td class="num">' + (r.flow === null ? '—' : fmt(r.flow, 4)) + '</td><td class="num">' + fmt(r.volume, 0) + '</td>' +
+        '<td class="num">' + fmt(r.capture, 1) + '</td><td class="num"><strong>' + fmt(r.capturable, 0) + '</strong></td><td>' + Pan.badge(s.source) + '</td></tr>';
+    });
+    $('#overview').innerHTML = rows.join('');
+  }
+
+  document.querySelectorAll('.tab').forEach(function (t) {
+    t.addEventListener('click', function () { season = t.dataset.season; fillForm(); });
+  });
+  document.querySelectorAll('input[name=mode]').forEach(function (r) {
+    r.addEventListener('change', function () { setMode(currentMode()); });
+  });
+
+  $('#streamForm').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var i = readForm(), errs = Pan.validateStream(i);
+    fields.forEach(function (f) { $('#' + f).classList.remove('invalid'); });
+    Pan.renderErrors($('#formErrors'), errs);
+    if (errs.length) {
+      var bad = i.mode === 'volume' ? ['seasonalVolume', 'capture'] : ['width', 'depth', 'velocity', 'hours', 'days', 'capture'];
+      bad.forEach(function (f) {
+        var v = i[f];
+        var invalid = v === null || v <= 0 || (f === 'capture' && v > 100) || (f === 'hours' && v > 24) || (f === 'days' && (v < 1 || Math.floor(v) !== v || v > 366));
+        if (invalid) $('#' + f).classList.add('invalid');
+      });
+      return;
+    }
+    var s = data.stream[season];
+    s.mode = i.mode;
+    fields.forEach(function (f) { s[f] = i[f]; });
+    // keep only the fields relevant to the chosen mode, so old values do not linger
+    if (i.mode === 'volume') { s.width = s.depth = s.velocity = s.hours = s.days = null; }
+    else { s.seasonalVolume = null; }
+    s.entered = true; s.source = 'user';
+    Pan.save(data);
+    Pan.toast(NAMES[season] + ' estimate saved.');
+    $('#srcBadge').innerHTML = Pan.badge('user');
+    renderResult(); renderOverview();
+    var b = $('.site-header'); // refresh the demo/mixed banner state
+    Pan.renderShell('stream');
+  });
+
+  $('#btnClear').addEventListener('click', function () {
+    if (!window.confirm('Clear the saved ' + NAMES[season] + ' estimate?')) return;
+    data.stream[season] = Pan.emptyData().stream[season];
+    Pan.save(data);
+    fillForm(); renderOverview();
+    Pan.renderShell('stream');
+    Pan.toast(NAMES[season] + ' estimate cleared.');
+  });
+
+  fillForm();
+  renderOverview();
+});
+</script>
+</body>
+</html>
